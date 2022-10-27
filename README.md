@@ -18,7 +18,7 @@ These data and analysis are open to use in scientific research but one should al
 
 This package contains:
 
-1. Data – SM1_Data.xlsx [Data set with all the data used in the analysis].
+1. Data – kgk6.xlsx [Data set with all the data used in the analysis].
 
 2. R_Code – kgk6.Rmd [R Markdown Scripts for R version R.4.1.1 and RStudio 351]
             kgk6.perm.RData [R data format file for the non-spatial permutation model to be used in reproducing the analysis; it         helps saving time when reproducing the permutation model].
