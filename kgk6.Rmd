@@ -1,0 +1,885 @@
+---
+title: "Kodjadermen-Gumelnița-Karanovo VI population change inferred from summed probability distributions of radiocarbon dates"
+author: "Gabriel M. Popescu, Cristina Covataru, Ionela Opris, Adrian Balasescu, Laurent Carozza, Valentin Radu, Constantin Haita, C. Michael Barton, Tiberiu Sava, Catalin Lazar"
+date: "`r Sys.Date()`"
+mainfont: Times New Roman
+monofont: Monaco
+geometry: margin=0.5in
+fontsize: 12pt
+output: 
+  html_document:
+    toc: no
+    toc_depth: 
+    highlight: "haddock"
+  word_document: 
+    toc: no
+    toc_depth: 
+    highlight: "haddock"
+  html_notebook:
+    toc: no
+    toc_depth: 
+    highlight: "haddock"
+  pdf_document:
+    toc: no
+    toc_depth: 
+    highlight: "haddock"
+editor_options: 
+  chunk_output_type: console
+---
+
+This R Markdown script includes the workflow for all analyses used in the work 
+**Kodjadermen-Gumelnița-Karanovo VI population change inferred from summed probability distributions of radiocarbon dates**, This R Markdown script requires R data files for the radiocarbon data set, ice core data, as well as several R packages not included in the base distribution. These are all loaded by the Setup chunk below.
+
+```{r setup, warning=FALSE, message=FALSE}
+library(knitr)
+library(doParallel)
+library(rcarbon)
+library(readxl)
+library(tinytex)
+library(oxcAAR)
+quickSetupOxcal()
+library(tidyverse)
+library(ggrepel)
+library(ggthemes)
+library(zoo)
+library(sp)
+library(R.utils)
+library(RCurl)
+library(GISTools)
+library(knitr)
+```
+
+Load the data set 
+```{r warning=FALSE, message=FALSE, results='hide'}
+ncores <- (detectCores() - 1)
+load("kgk6.RData")
+load('intcal20.Rda')
+colnames(intcal20) <- c("BP","CRA","Error","D14C","Sigma")
+```
+
+PERFORM THE ANALYSIS USING RCARBON.
+
+# Subset dates by region (North of Danube and South of Danube)
+```{r subset, warning=F, message=F}
+kgk6n <- subset(kgk6, Region == 2)
+kgk6s <- subset(kgk6, Region == 1)
+```
+
+# Check region lengths 
+```{r region lengths, warning=F, message=F}
+length(unique(kgk6$Site_id))
+length(unique(kgk6n$Site_id))
+length(unique(kgk6s$Site_id))
+nrow(kgk6)
+table(kgk6$Country)
+```
+
+# Binning and calibrating the KGK-VI dates and make the SPDs.
+## Dates binning
+Dates binning is a way to mitigate the misleading peaks in the SPD, which might be the result of strong inter-site variability in sample size.
+
+## Calibrate dates using the intcal20 calibration curve.
+
+```{r calibrate, warning=FALSE, message=FALSE}
+kgk6.cal <- calibrate(x = kgk6$Date_BP, errors = kgk6$SD,
+  calCurves = 'intcal20', normalised = FALSE, ncores = ncores)
+
+# Compute median date for each date.
+dm <- medCal(kgk6.cal)
+```
+
+# Compute 100 year bins to mitigate the effects of oversampling.
+```{r warning=FALSE, message=FALSE}
+kgk6.bins <- binPrep(sites = kgk6$Site_id, ages = kgk6$Date_BP, h = 100) # 100 years bin size.
+
+# Or using calibrated age instead of CRA.
+# kgk6.bins <- binPrep(sites = kgk6$Site_id, ages = kgk6.cal, h = 100)
+
+kgk6n.bins <- binPrep(sites = kgk6n$Site_id, ages = kgk6n$Date_BP,h = 100)
+
+kgk6s.bins <- binPrep(sites = kgk6s$Site_id, ages = kgk6s$Date_BP,h = 100)
+# Compute median date for each bin to use if needed.
+# bm <- 1950-binMed(x = kgk6.cal, bins = kgk6.bins, verbose = FALSE)
+```
+
+# Check the number of unique bins
+```{r unique bins}
+length(unique(kgk6.bins))
+length(unique(kgk6n.bins))
+length(unique(kgk6s.bins))
+```
+
+# Compute SPDs
+Compute the SPDs -- SPD for all data, as well as, by region.
+```{r warning=FALSE, message=FALSE}
+# compute the SPD for all data.
+kgk6.spd <- spd(x = kgk6.cal, timeRange = c(7000, 5700), bins = kgk6.bins, 
+                datenormalised = F, spdnormalised = T, edgeSize = 300)
+# Use transformSPD() to count for taphonomic loss.
+# kgk6.spd<- transformSPD(kgk6.spd)
+```
+
+# Hypothesis testing
+It is important to test the shape of the empirical SPD. Its shape can be affected by various byases including taphonomic loss, sampling error, and the shape of the calibration curve. One can test to see how the SPD  was affected through its assessment in relation to theoretical expectations and adopt a hypothesis-testing framework. We will further use the functions available in **rcarbon** to approach this issue.
+Here we evaluate the goodness-of-fit of the entire data set and separated by each regional SPD, by fitting the calibrated data to a generalized exponential and logistic model. Akaike Information Criterion (AIC) is used to select the most parsimonious fitted model for each region.
+
+## Exponential models
+Exponential models are computed and fitted for the entire region, as well as for each region apart and then the model testing is performed.
+
+## Custom logistic growth models
+The following procedure is performed using a custom growth model.
+This is another utility of the modelTest() function, which allows the user to test the SPD against user-defined theoretical growth models. The code below fits a logistic growth model with the help of the drc() function.
+
+### Exponential model fitting for the entire region.
+
+```{r warning = FALSE, message = FALSE}
+# Exponential model
+set.seed(12345)
+kgk6fit.exp <- modelTest(kgk6.cal, errors = kgk6$SD, nsim = 5000, bins = kgk6.bins, 
+                      timeRange = c(7000, 5700), model = "exponential", 
+                      raw = TRUE, normalised = F, spdnormalised = T, ncores = ncores, 
+                      fitonly = T, edgeSize = 300)
+```
+
+### Logistic model fitting for the entire region.
+```{r warning = FALSE, message = FALSE}
+logFit <- nls(PrDens~SSlogis(calBP, Asym, xmid, scale),data = kgk6.spd$grid,
+              control = nls.control(maxiter = 200),
+              start=list(Asym=0.2,xmid=6420,scale=-100))
+# Generate a data frame containing the fitted values
+logFitDens <- data.frame(calBP=kgk6.spd$grid$calBP,PrDens=SSlogis(input=kgk6.spd$grid$calBP,Asym=coefficients(logFit)[1],xmid=coefficients(logFit)[2],scal=coefficients(logFit)[3]))
+# Use modelTest function (returning the raw simulation output-see below)
+kgk6.log.fit <- modelTest(kgk6.cal, errors = kgk6$SD, nsim = 5000, bins = kgk6.bins, 
+                timeRange = c(7000, 5700), predgrid = logFitDens, 
+                model = "custom", normalised = F, spdnormalised = T, 
+                raw = TRUE, fitonly = TRUE, edgeSize = 300, ncores = ncores)
+```
+
+### Model selection
+#### Here we use Akaike Information Criterion for choosing the most parsimonious model.
+```{r message=FALSE, warning=FALSE}
+# Model fitting for the entire region.
+# AIC(logFit, kgk6fit.exp$fitobject, k = 2)
+```
+While we were able to fit both an exponential and a logistic model, the AIC and the change point analysis results have shown that the Logistic null model is the most parsimonious and better suited to be used for the entire data set as well as for each region separately.
+
+### Exponential model testing for the entire region.
+```{r warning=FALSE, message=FALSE}
+options(scipen = 999)
+set.seed(12345)
+load("kgk6.exp.RData") # Skip the code below and use the Rda file to save time
+#kgk6.exp <- modelTest(kgk6.cal, errors = kgk6$SD, nsim = 5000, bins = kgk6.bins, 
+                      #timeRange = c(7000, 5700), model = "exponential", runm = 100, 
+                      #raw = TRUE, edgeSize = 300, normalised = F, spdnormalised = T, 
+                      #ncores = ncores)
+
+#save(kgk6.exp, file = "kgk6.exp.RData", version = 2)
+summary(kgk6.exp)
+```
+
+### Logistic model testing for the entire region.
+```{r warning=FALSE, message=FALSE}
+set.seed(12345)
+load("kgk6.log.RData") # Use the Rda file and skip the code below to save time.
+#kgk6.log <- modelTest(kgk6.cal, errors = kgk6$SD, nsim = 5000, bins = kgk6.bins,
+                    #timeRange = c(7000, 5700), model = "custom", runm = 100,
+                    #predgrid = logFitDens, normalised = F, spdnormalised = T,
+                    #raw = TRUE, edgeSize = 300, ncores = ncores)
+
+#save(kgk6.log, file = "kgk6.log.RData", version = 2)
+summary(kgk6.log)
+```
+
+## Searching for the kind of composite model to fit the data to.
+### First, composite kernel density estimate.
+
+```{r ckde, warning=FALSE, message=FALSE}
+source("rowcal.r")
+source("src.r")
+kgksde <- sampleDates(x = kgk6.cal, bins = kgk6.bins, nsim = 1000, boot = TRUE)
+kgkckde <- ckde(kgksde, timeRange = c(7000, 5700), bw = 30, normalised = FALSE)
+#kgkmcdens <- MCdensity(as.matrix(kgk6[13:14]), N = 100) # see McLaughlin (2019) for MCDensity and ggr functions.
+```
+
+## Model selection
+```{r models, warning=FALSE, message=FALSE}
+library(drc)
+# Double-Exponential model.
+modelAa <- nls(y~exp(a+b*x), data = data.frame(x=seq(7000,6351,-1), y=kgk6.spd$grid$PrDens[1:650]),
+              start=list(a=0,b=0))
+AIC.Aa <- -2*as.numeric(logLik(modelAa))+2*3+2*3*(650/(650-3-1))
+BIC.Aa <- -2*as.numeric(logLik(modelAa))+3*log(650)
+
+modelAb <- nls(y~exp(a+b*x), data = data.frame(x=seq(6350,5700,-1), y=kgk6.spd$grid$PrDens[651:1301]),
+               start=list(a=0,b=0))
+AIC.Ab <- -2*as.numeric(logLik(modelAb))+2*3+2*3*(651/(651-3-1))
+BIC.Ab <- -2*as.numeric(logLik(modelAb))+3*log(651)
+
+AIC.A <- AIC.Aa + AIC.Ab
+BIC.A <- BIC.Aa + BIC.Ab
+
+# Logistic-Exponential model.
+modelBa <- drm(y~x, data=data.frame(x=seq(7000,6351,-1), y=kgk6.spd$grid$PrDens[1:650]),
+               fct = L.3())
+AIC.Ba <- -2*as.numeric(logLik(modelBa))+2*5+2*5*(650/(650-5-1))
+BIC.Ba <- -2*as.numeric(logLik(modelBa))+5*log(650)
+
+modelBb <- nls(y~exp(a+b*x), data=data.frame(x=seq(6350,5700,-1),y=kgk6.spd$grid$PrDens[651:1301]),
+               start=list(a=0,b=0))
+AIC.Bb <- -2*as.numeric(logLik(modelBb))+2*3+2*3*(651/(651-3-1))
+BIC.Bb <- -2*as.numeric(logLik(modelBb))+3*log(651)
+
+AIC.B <- AIC.Ba + AIC.Bb
+BIC.B <- BIC.Ba + BIC.Bb
+
+# Logistic-Logistic model.
+modelCa <- drm(y~x, data = data.frame(x=seq(7000,6351,-1), y=kgk6.spd$grid$PrDens[1:650]),
+              fct = L.3())
+AIC.Ca <- -2*as.numeric(logLik(modelCa))+2*5+2*5*(650/(650-5-1))
+BIC.Ca <- -2*as.numeric(logLik(modelCa))+5*log(650)
+
+modelCb <- drm(y~x, data = data.frame(x=seq(6350,5700,-1), y=kgk6.spd$grid$PrDens[651:1301]),
+               fct = L.3())
+AIC.Cb <- -2*as.numeric(logLik(modelCb))+2*5+2*5*(651/(651-5-1))
+BIC.Cb <- -2*as.numeric(logLik(modelCb))+5*log(651)
+
+AIC.C <- AIC.Ca + AIC.Cb
+BIC.C <- AIC.Ca + BIC.Cb
+
+# Exponential-Logistic model.
+modelDa <- nls(y~exp(a+b*x), data = data.frame(x=seq(7000,6351,-1), y=kgk6.spd$grid$PrDens[1:650]),
+               start=list(a=0,b=0))
+AIC.Da <- -2*as.numeric(logLik(modelDa))+2*3+2*3*(650/(650-3-1))
+BIC.Da <- -2*as.numeric(logLik(modelDa))+3*log(650)
+
+modelDb <- drm(y~x, data = data.frame(x=seq(6350,5700,-1), y=kgk6.spd$grid$PrDens[651:1301]),
+               fct = L.3())
+AIC.Db <- -2*as.numeric(logLik(modelDb))+2*5+2*5*(651/(651-5-1))
+BIC.Db <- -2*as.numeric(logLik(modelDb))+5*log(651)
+
+AIC.D <- AIC.Da + AIC.Db
+BIC.D <- BIC.Da + BIC.Db
+```
+
+## Data frame for AIC and BIC results.
+```{r model selection, warning=FALSE, message=FALSE}
+icres <- data.frame(BIC = c(BIC.A, BIC.B, BIC.C, BIC.D),
+                    AIC = c(AIC.A, AIC.B, AIC.C, AIC.D))
+rownames(icres) <- LETTERS[1:4] # Rows labeling.
+
+# Calculate delta AIC and model weights.
+icres$delta <- icres$AIC - min(icres$AIC) # Both AIC and BIC prefer model B.
+icres$w <- exp(-0.5 * icres$delta)
+which.min(icres$AIC)
+which.min(icres$BIC)
+
+# Combined model B.
+time.a <- seq(7000,6351,-1) # The three segments of the model.
+time.b <- seq(6350,5701,-1)
+#time.c <- seq(6130,5701,-1)
+
+# Predict fitted model for each segment.
+est.a <- predict(modelBa, data.frame(x=time.a))
+predicted.a <- data.frame(calBP=time.a, PrDens=est.a) # Turn into data frame.
+est.b <- predict(modelBb, data.frame(x=time.b))
+predicted.b <- data.frame(calBP=time.b, PrDens=est.b)
+
+# Combine data frames to create the predgrid model.
+combi <- rbind(predicted.a, predicted.b)
+```
+
+## Best-fit model test.
+```{r model test, warning=FALSE, message=FALSE}
+set.seed(123)
+load("bestfit.RData")
+#bestfit <- modelTest(x = kgk6.cal, errors = kgk6$SD, bins = kgk6.bins, runm = 100,
+                     #timeRange = c(7000,5700), edgeSize = 300, model = "custom", 
+                     #method = "uncalsample", normalised = F, spdnormalised = T, nsim = 5000, 
+                     #predgrid = combi, ncores = ncores)
+#save(bestfit, file = "bestfit.RData", version = 2)
+summary(bestfit)
+```
+
+## Non-parametric pair-wise permutation test.
+### Compare empirical SPDs against each other.
+Compare SPDs against each other to evaluate regional variations in population trends (Timpson et al 2014) and determining the potential proportion changes of the materials dated, across time. The permTest() function introduced by Crema et al. 2016 (see also Roberts et al. 2018) provides a permutation test for comparing two or more SPDs, returning both global and local p-values using similar procedures to modelTest().
+
+```{r warning = FALSE, message = FALSE}
+# Prepare the data and generate the panregional for KGK-VI
+kgk6 <- subset(kgk6, Region%in%c(1,2))
+bins <- binPrep(sites = kgk6$Site_id, ages = kgk6$Date_BP, h = 100)
+
+kgk6.all <- calibrate(x = kgk6$Date_BP, errors = kgk6$SD, calCurves = 'intcal20',
+                      normalised = F, verbose = F, ncores = ncores)
+
+alldates.spd <- spd(kgk6.all, timeRange = c(7000, 5700), bins = bins, 
+                    runm = 100, datenormalised = F, spdnormalised = T, edgeSize = 300)
+
+# Execute the permutation test
+set.seed(12345)
+load("kgk6.perm.RData") # Use the Rda file to save more time than runing the whole model.
+#kgk6.perm <- permTest(x = kgk6.all, marks = kgk6$Region, bins = bins,
+                #timeRange = c(7000, 5700), backsight = 50, 
+                #runm = 100, datenormalised = F, spdnormalised = T, nsim = 5000)
+
+#save(kgk6.perm, file = "kgk6.perm.RData", version = 2)
+summary(kgk6.perm)
+
+# Results p-value Matrix
+resultPairwise <- matrix(NA, 2, 2)
+row.names(resultPairwise) <- c("South of Danube", "North of Danube")
+colnames(resultPairwise) <- c("South of Danube", "North of Danube")
+
+resultPairwise[1, 2] = kgk6.perm$pValueList[2]
+resultPairwise[2, 1] = kgk6.perm$pValueList[1]
+resultPairwise
+```
+
+# SPATIAL ANALYSIS
+
+## Dispersal analysis of the KGK-VI sites, potentially from south to north.
+
+```{r warning = FALSE, message = FALSE}
+library(rcarbon)
+library(data.table)
+library(gstat)
+library(automap)
+library(rgdal)
+library(ggplot2)
+library(dplyr)
+library(ggspatial)
+library(GISTools)
+library(raster)
+library(scales)
+library(zoo)
+library(sp)
+library(gridExtra)
+library(spdep)
+library(emstreeR)
+library(rnaturalearth)
+library(rworldmap)
+library(terra)
+library(patchwork)
+```
+
+### Get variables.
+```{r variables, warning=FALSE, message=FALSE}
+cnew<-"#c51b8a" #new grids color
+cold<-"#fa9fb5" #old grids color
+waterc<-"#9999AA" #water color
+rollmeancolor<-"indianred"
+fillcolor<-"gray80"
+
+size <- 23000 # Grid size.
+sizei <- 5000 # interpolated grid size.
+```
+
+## Gather and prepare the data.
+```{r preparation, warning=FALSE, message=FALSE}
+load("~/Documents/kgk6/dem.Rda")
+river <- readOGR(dsn = "ne_10m_rivers_lake_centerlines_scale_rank.shp", 
+                 layer = "ne_10m_rivers_lake_centerlines_scale_rank")
+e.river <- extent(22.8, 30, 41, 45.4)
+river <- crop(river, e.river)
+river.sup <- readOGR(dsn = "ne_10m_rivers_europe.shp", layer = "ne_10m_rivers_europe")
+e.river.sup <- extent(22.8, 30, 41, 45.4)
+river.sup <- crop(river.sup, e.river.sup)
+
+d <- read_excel("kgk6.xlsx")
+dt <- data.table(d)
+dt <- dt[ ,c("Lab. no.","Date_BP","SD","Site_id")]
+colnames(dt) <- c("Lab. no.","Date_BP","SD","Site_id")
+sites <- readOGR(dsn = "situri_kgk6_wgs84_modif.shp", layer = "situri_kgk6_wgs84_modif")
+sea <- readOGR(dsn = "marea neagra_wgs.shp", layer = "marea neagra_wgs")
+grid <- readOGR(dsn = "grid_zona studiu_MODIF.shp", layer = "grid_zona studiu_MODIF")
+area <- readOGR(dsn = "poli2.shp", layer = "poli2")
+newproj <- "+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"
+
+dem <- projectRaster(dem, crs = newproj)
+sites <- spTransform(sites, CRS("+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"))
+sea <- spTransform(sea, CRS("+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"))
+river <- spTransform(river, CRS("+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"))
+river.sup <- spTransform(river.sup, CRS("+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"))
+grid <- spTransform(grid, CRS("+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"))
+
+proj4string(dem)<-CRS("+init=epsg:32635")
+proj4string(sites)<-CRS("+init=epsg:32635")
+proj4string(sea)<-CRS("+init=epsg:32635")
+proj4string(river)<-CRS("+init=epsg:32635")
+proj4string(river.sup)<-CRS("+init=epsg:32635")
+proj4string(grid)<-CRS("+init=epsg:32635")
+proj4string(area)<-CRS("+init=epsg:32635")
+```
+
+## Make the grid.
+```{r grid, warning=FALSE, message=FALSE}
+hex_points <- spsample(area, type = "hexagonal", cellsize = size, n = 1000, 
+                       offset = c(0.2, 0.2))
+hex_grid <- HexPoints2SpatialPolygons(hex_points, dx = size)
+hex_ids <- as.data.frame(getSpPPolygonsIDSlots(hex_grid))
+grid <- SpatialPolygonsDataFrame(hex_grid, data = hex_ids, match.ID = F)
+colnames(grid@data) <- "id" # Column ID contains grid reference.
+hex_points$id <- over(hex_points, grid)
+waterc1 <- "#CCCCDD" #uses different water colour for easthetic purposes
+ddd <- as.data.frame(dem, xy = T)
+```
+
+## Establish the number of dates per grid by joining dates with sites in each grid.
+```{r dates grid, warning=FALSE, message=FALSE}
+s <- data.frame(sites@coords, sites@data$Lab..no.) # convert sites to data frame.
+ds <- merge(dt, s, by.x = "Lab. no.", by.y = "sites.data.Lab..no.") # actual join.
+colnames(ds) <- c("rcode", "d", "sd", "scode", "x", "y")
+# Convert to spatialdataframe.
+coordinates(ds)<-cbind(ds$x, ds$y)
+proj4string(ds)=CRS(proj4string(sites))
+# add information in which grid is date.
+ds@data$grid <- over(ds, grid[, 'id'])$id # get ids of grids date is in.
+ds@data$region <- over(ds, grid[, 'id'])$region
+```
+
+# Only sites that have dates.
+```{r dates, warning=FALSE, message=FALSE}
+sites <- subset(sites, sites$Site_id %in% unique(ds$scode))
+gr.dat <- aggregate(ds@data$grid, by = list(ds@data$grid), FUN=length)
+colnames(gr.dat) <- c("id","count")
+grid.d <- merge(grid, gr.dat, by.x = "id", by.y = "id")
+grid.d <- subset(grid.d, grid.d@data$count>0)
+
+p1 <- ggplot()+
+  layer_spatial(data=grid, alpha=0.2, fill="NA", col="white")+
+  layer_spatial(data=grid.d, col=NA, aes(fill=count))+  
+  scale_fill_distiller(palette="RdPu", direction=1, oob=squish, trans="log10")+
+  layer_spatial(data=sea, fill=waterc, col=NA, alpha=0.8) +
+  layer_spatial(data=river, col=waterc1, alpha=1, size = 0.8) +
+  layer_spatial(data=river.sup, col=waterc1, alpha=1, size = 0.8) +
+  layer_spatial(data=sites, size=0.5)+
+  coord_sf(xlim=c(147616.7, 732061), ylim=c(4540454, 5043690))+
+  #coord_sf(xlim=c(22.80677, 29.97076),ylim=c(41.00413, 45.5081))+
+  labs(title="", fill="N")+xlab("")+ylab("")
+```
+
+# Earliest dates in a grid using SPD.
+```{r warning=FALSE, message=FALSE}
+binSize <- 100 # bin size 
+cutoff <- 0.05 # 2 sigma.
+
+df <- as.data.table(ds)
+gridss<-df[,.(.N),by=grid]$grid #list of grids  
+# Below is the output.
+out <- data.frame(grid=character(), d = integer(), num=integer(), stringsAsFactors = F) # num is the number of dates.
+```
+
+## Calculate SPDs for each grid.
+```{r SPDSs grid, warning=FALSE, message=FALSE}
+for(g in gridss)  {
+    print(g)
+  ss <- subset(df,df$grid==g) #select all dates from a particular grid g.
+  ss.cd=calibrate(x=ss$d,errors=ss$sd,calCurves='intcal20', ncores=ncores)
+# calibrate
+  ss.bins = binPrep(sites = ss$grid, ages = ss$d, h = binSize, method = "complete") # make bins.
+  ss.spd.bins = spd(timeRange = c(7000, 5700), ss.cd, bins = ss.bins, spdnormalised = T)
+  #find edge of lower 5% (lower 2sigma)
+  #accumulate probabilities until it reaches 2.5%
+  s<-0
+  print(g)
+  for(n in seq(from=1, to=nrow(ss.spd.bins$grid))) {
+    s<-s+ss.spd.bins$grid[n,2]
+    if(s>cutoff/2) { 
+      dte<-ss.spd.bins$grid[n ,1]
+      break }
+  }
+  # aa<-subset(..ss.spd.bins$grid, ss.spd.bins$grid$PrDens > probTwoSigma)
+  out<-rbind(out,data.frame(grid=g, d=dte, num=nrow(ss)))
+
+}
+
+# Get spatial extent of grids.
+grid.d <- merge(grid, out, by.x = "id", by.y = "grid")
+grid.d <- subset(grid.d, grid.d@data$d>0) # select only grid cells with data.
+grid.d$d <- grid.d$d-1950
+```
+
+# Plot the earliest dates per grid.
+```{r warning=FALSE, message=FALSE}
+p2 <- ggplot() +
+  layer_spatial(data = grid, alpha = 0.2, fill = "NA", col = "white") +
+  layer_spatial(data = grid.d, col = NA, aes(fill = d)) +
+  scale_fill_distiller(palette = "YlOrBr", direction = 1, limits = c(4300,5050), oob = squish) +
+  layer_spatial(data = sea, fill = waterc, col = NA, alpha = 0.8) +
+  layer_spatial(data = river, col = waterc1, size = 0.8, alpha = 1) +
+  layer_spatial(data = river.sup, col = waterc1, size = 0.8, alpha = 1) +
+  layer_spatial(data = sites, size = 0.5) +
+  coord_sf(xlim=c(147616.7, 732061), ylim=c(4540454, 5043690)) +
+  labs(title = "", fill = "cal BC") + xlab("") + ylab("") + annotation_scale()
+```
+
+## Krigging analysis.
+```{r kriging, warning=FALSE, message=FALSE}
+#points <- SpatialPointsDataFrame(coords=grid, data=grid@data, 
+                                 #proj4string = CRS("+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs"))
+#colnames(points@data) <- "id"
+#points.d <- merge(points, grid.d, by = "id") # centroids of grids with the earliest date.
+#pts.all <- data.frame(points.d)
+#pts <- subset(pts.all, d > 0 & num > 1) # data frame with centroids of points that have earliest 
+# date and have more than one date.
+# Convert back to spatial data frame.
+#coordinates(pts) <- ~ coords.x1 + coords.x2
+
+# Create grid of interpolated points over the study area.
+#p.i <- spsample(grid, type = "regular", cellsize = sizei, n = 1000) # also do type = "hexagonal
+#coordinates(p.i) < ~ x + y
+#proj4string(p.i) = CRS(proj4string(pts))
+
+#data.kriged <- autoKrige(d~1, pts, p.i, model = "Gau", #c("Exp","Ste","Sph","Gau","Mat"),
+                         #kappa = T, fix.values = c(0,24000,24000))
+                        
+#plot(data.kriged)
+#kriged <- as.data.frame(data.kriged$krige_output)
+#names(kriged) <- c("x1", "x2", "d.pred", "d.var", "var.stdev")
+```
+
+## Spatial Permutation Test
+
+The analysis below closely follows Bevan and Crema 2020, Crema and Bevan 2020, Crema et al. 2017.
+The analysis is using closely the guide from Crema et al. 2017 and Crema and Bevan 2020, which is adapted to the data set and region of interest for this study.
+
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+# Subset radiocarbon dates for the interval 7000 to 5750 Cal BP ###
+rangeStart=7000
+rangeEnd=5750
+edge=500
+yearRange=c(rangeStart,rangeEnd)
+kgk6sp <- subset(kgk6,Date_BP<=c(rangeStart-edge)&Date_BP>=c(rangeEnd-edge))
+
+# Create a vector of cutoff points for the chronological blocks
+breaksize=250
+breaks=seq(rangeStart,rangeEnd,-breaksize) #250 years cutoff points of the chronological blocks
+```
+
+# Create a SpatialPoints class object
+```{r warning=F, message=F}
+# SpatialPoints class object
+sites <- unique(data.frame(SiteID=kgk6sp$Site_id,
+                           Longitude=kgk6sp$Longitude,
+                           Latitude=kgk6sp$Latitude)) #extrapolate sites
+locations=data.frame(Longitude=sites$Longitude,Latitude=sites$Latitude)
+rownames(locations)=sites$SiteID
+coordinates(locations) <- c("Longitude","Latitude")
+proj4string(locations) <- CRS("+proj=longlat +datum=WGS84")
+
+# Compute Distance and Spatial Weights
+## Compute great-arc distance
+distSamples=spDists(locations,locations,longlat = TRUE)
+## Compute distance based weights (using a 100 km bandwidth)
+spatialweights=spweights(distSamples,h=100)
+```
+
+# Binning, Calibration and SPD
+```{r warning=F, message=F, results='hide'}
+# Binning and calibration
+bins <- binPrep(sites=kgk6sp$Site_id,ages=kgk6sp$Date_BP,h=100)  
+calDates <- calibrate(x=kgk6sp$Date_BP,errors=kgk6sp$SD,calCurves='intcal20',
+                      timeRange=yearRange,normalised=FALSE,ncores = ncores)
+
+# Compute SPD and geometric growth rate
+# compute the SPD for all data.
+kgk6.spd <- spd(x = kgk6.cal, bins = kgk6.bins,
+  timeRange = c(7000, 5750), runm = 50, datenormalised = FALSE,
+  spdnormalised = TRUE)
+kgk6sp.spd <- spd(x=calDates,timeRange=yearRange,bins=bins,datenormalised=FALSE, spdnormalised = TRUE, runm = 50) #SPD
+nBreaks=length(breaks)-1
+kgk6sp.spd.blocksum=numeric()
+kgk6sp.spd.roc=numeric()
+
+for (i in 1:nBreaks)
+{
+  kgk6sp.spd.blocksum[i]=sum(kgk6sp.spd$grid$PrDens[
+    kgk6sp.spd$grid$calBP<=breaks[i]&kgk6sp.spd$grid$calBP>=breaks[i+1]])
+}
+
+for (i in 1:c(nBreaks-1))
+{
+  kgk6sp.spd.roc[i]=(kgk6sp.spd.blocksum[i+1]/
+                       kgk6sp.spd.blocksum[i])^(1/breaksize)-1
+}
+```
+
+We can now compute the spatial permutation test.
+```{r warning=F, message=F, results='markup'}
+kgk6sp.locations <- sptest(
+  calDates,timeRange=yearRange,bins=bins,runm = 50,
+  locations=locations,spatialweights=spatialweights,
+  breaks=breaks,ncores=ncores,nsim=10000,permute="locations",datenormalised=FALSE)
+```
+
+# PRODUCE IMAGES
+
+## Plot the result of dispersion analysis.
+### Figure 2.
+```{r warning=FALSE, message=FALSE, results='hide'}
+p <- p1+p2+
+  plot_layout(nrow = 2)
+p
+dev.off()
+```
+
+## Plot exponential model testing results for the KGK-VI sites.
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/Figure_3.tif", width = 1200, height = 765, units = "px", pointsize = 17)
+options(scipen = 999) # Display p-values in non-scientific annotation.
+plot(kgk6.exp, calendar = "BCAD", xlim = c(-5050, -3750), ylim = c(0.0000, 0.0030), col.obs = "darkred", lwd = 2)
+#lines(1950-kgk6.exp$fit$calBP, kgk6.exp$fit$PrDens , col = "black", lty = 2)
+text(x = -5030, y = 0.96*0.0030, labels = "Exponential model", font = 4, cex = 0.8, adj = c(0,0))
+text(x = -5030, y = 0.89*0.0030, labels = paste("dates=",nrow(kgk6),", \nsites=",length(unique(kgk6$Site)),",bins=",length(unique(kgk6.bins)),sep=""), font=4, cex=0.8, adj=c(0,0))
+text(x = -5030, y = 0.80*0.0030, cex=0.8, adj=c(0,0),
+     labels=substitute(paste(italic(p),"=", x, " (global, 5000 runs)",
+                             sep=""),list(x=round(kgk6.log$pval,4))))
+legend(x = -4100, y = 0.95*0.0030, legend = c("SPD", "95% MC envelope", "Positive deviation", "Negative deviation"), 
+       col = c("darkred", "lightgrey", "indianred", "royalblue"), lty = c(1,1,1,1), lwd = c(1,5,5,5), cex = 0.8, bg = "white")
+p2pTest(kgk6.exp, p1=6358, p2=6125, plot = F)
+dev.off()
+# dev.print(device=pdf,"Figure 2.pdf")
+```
+
+## Plot logistic model testing results for the KGK-VI sites.
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/Figure_4.tif", width = 1200, height = 765, units = "px", pointsize = 17)
+plot(kgk6.log, calendar = "BCAD", xlim = c(-5050, -3750), ylim = c(0.0, 0.0030), col.obs = "darkred", lwd = 2)
+#lines(1950-kgk6.log$fit$calBP, kgk6.log$fit$PrDens , col = "black", lty = 2)
+text(x = -5030, y = 0.96*0.0030, labels = "Logistic model", font = 4, cex = 0.8, adj = c(0,0))
+text(x = -5030, y = 0.89*0.0030, labels = paste("dates=",nrow(kgk6),", \nsites=",length(unique(kgk6$Site)),",bins=",length(unique(kgk6.bins)),sep=""), font=4, cex=0.8, adj=c(0,0))
+text(x = -5030, y = 0.80*0.0030, cex=0.8, adj=c(0,0),
+     labels=substitute(paste(italic(p),"=", x, " (global, 5000 runs)",
+                             sep=""),list(x=round(kgk6.log$pval,4))))
+legend(x = -4100, y = 0.95*0.0030, legend = c("SPD", "95% MC envelope", "Positive deviation", "Negative deviation"), 
+       col = c("darkred", "lightgrey", "indianred", "royalblue"), lty = c(1,1,1,1), lwd = c(1,5,5,5), cex = 0.8, bg = "white")
+
+#p2pTest(kgk6.log, p1=NA, p2=NA, plot = FALSE)
+dev.off()
+```
+
+## Plot the results of ckde analysis.
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/Figure_5.tif", width = 1200, height = 765, units = "px", pointsize = 24)
+plot(kgkckde, calendar = "BCAD", ylim = c(0.000, 0.0035))
+abline(v = seq(-5000, -3750, 100), lty = 3, col = "antiquewhite3", lwd = 2)
+
+#plot(ggr(kgkmcdens, bw = 100), ylim = c(-7.5, 7), xlab = "cal.years BC", xaxt = "n")
+#axis(side = 1, at = c(-5050, -4850, -4650, -4450, -4250, -4050, -3850, -3650), 
+     #labels = c("5050","4850","4650","4450","4250","4050","3850","3650"))
+#abline(v = seq(-5050, -3750, 100), lty = 3, col = "antiquewhite", lwd = 2)
+#abline(h = 0, lty = 2, col = "black", lwd = 2)
+dev.off()
+```
+
+## Plot the composite Logistic-Exponential model test results.
+```{r warning=FALSE, message=FALSE, results='hide'}
+tiff("~/Documents/kgk6/figures/Figure_6.tif", width = 1200, height = 765, units = "px", pointsize = 19)
+plot(bestfit, calendar = "BCAD", xlim = c(-5050, -3750), ylim = c(0.0, 0.0030), col.obs = "darkred", lwd = 2)
+text(x = -5030, y = 0.96*0.0030, labels = "Logistic-Exponential", font = 4, cex = 0.8, adj = c(0,0))
+text(x = -5030, y = 0.89*0.0030, labels = paste("dates=",nrow(kgk6),", \nsites=",length(unique(kgk6$Site)),",bins=",length(unique(kgk6.bins)),sep=""), font=4, cex=0.8, adj=c(0,0))
+text(x = -5030, y = 0.80*0.0030, cex=0.8, adj=c(0,0),
+     labels=substitute(paste(italic(p),"=", x, " (global, 5000 runs)",
+                             sep=""),list(x=round(bestfit$pval,4))))
+legend(x = -4100, y = 0.95*0.0030, legend = c("SPD", "95% MC envelope", "Positive deviation", "Negative deviation"), 
+       col = c("darkred", "lightgrey", "indianred", "royalblue"), lty = c(1,1,1,1), lwd = c(1,5,5,5), cex = 0.8, bg = "white")
+
+dev.off()
+```
+
+## Plot non-parametric permutation test results
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/Figure_7.tif", width = 1000, height = 1000, units = "px", pointsize = 19)
+par(mfrow = c(2, 1))
+plot(kgk6.perm, calendar = 'BCAD', focalm = '2', lwd = 2, xlim = c(-5050, -3750), 
+     ylim = c(0.0, 0.0030))
+plot(alldates.spd, calendar = 'BCAD', add=T, type='simple', lty=2, col='grey27')
+text(x = -5030, y = 0.96*0.0030, labels = "NORTH of DANUBE", font = 4, cex = 0.8,
+     adj = c(0,0.7))
+text(x = -5030, y = 0.88*0.0028, labels = paste("dates=",nrow(kgk6n),", \nsites=",length(unique(kgk6n$Site)),",bins=",length(unique(kgk6n.bins)),sep=""), font=4, cex=0.8, adj=c(0,0))
+text(x = -5030, y = 0.80*0.0028, cex=0.8, adj=c(0,0.7),
+     labels=substitute(paste(italic(p),"=", x, " (global, 5000 runs)",
+                             sep=""),list(x=round(kgk6.perm$pValueList["2"],3))))
+legend("topright", legend = c("SPD", "SPD pan-regional", "95% MC envelope", 
+                             "Positive Deviation", "Negative Deviation"), 
+       col = c(1, 1, "lightgrey", "indianred", "royalblue"), 
+       lty = c(1, 2, 1, 1, 1), lwd = c(1.5, 2, 5, 5, 5), 
+       cex = 0.8, bg = "white")
+
+plot(kgk6.perm, calendar = 'BCAD', focalm = '1', lwd = 2, xlim = c(-5050, -3750), 
+     ylim = c(0.0, 0.0032))
+plot(alldates.spd, calendar = 'BCAD', add=T, type='simple', lty=2, col='grey27')
+text(x = -5030, y = 0.96*0.0032, labels = "SOUTH of DANUBE", font = 4, cex = 0.8,
+     adj = c(0,0.7))
+text(x = -5030, y = 0.88*0.0030, labels = paste("dates=",nrow(kgk6s),", \nsites=",length(unique(kgk6s$Site)),",bins=",length(unique(kgk6s.bins)),sep=""), font=4, cex=0.8, adj=c(0,0))
+text(x = -5030, y = 0.80*0.0030, cex=0.8, adj=c(0,0.7),
+     labels=substitute(paste(italic(p),"=", x, " (global, 5000 runs)",
+                             sep=""),list(x=round(kgk6.perm$pValueList["1"],3))))
+legend("topright", legend = c("SPD", "SPD pan-regional", "95% MC envelope", 
+                             "Positive Deviation", "Negative Deviation"), 
+       col = c(1, 1, "lightgrey", "indianred", "royalblue"), 
+       lty = c(1, 2, 1, 1, 1), lwd = c(1.5, 2, 5, 5, 5), 
+       cex = 0.8, bg = "white")
+
+dev.off()
+# dev.print(device=pdf,"Figure 3.pdf")
+```
+
+## Plot the results of the Spatial Permutation Test.
+
+### Geometric growth rate
+First, plot the rates of change from SPDs for each temporal block.
+
+```{r warning=FALSE, message=FALSE, results='hide'}
+tiff("~/Documents/kgk6/figures/Figure_8.tif", width = 1200, height = 765, units = "px", pointsize = 17)
+kgk6roc <- spd2rc(kgk6.spd, breaks = seq(7000, 5750, -250))
+plot(kgk6roc, calendar = "BCAD", col = "grey50", lwd.obs = 1, xaxs = "i",
+     yaxs = "i")
+
+dev.off()
+```
+
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/Figure_9.tif", width = 1200, height = 600, units = "px", pointsize = 24)
+# First retrieve the base map.
+base=getMap(resolution="coarse")
+xrange=bbox(kgk6sp.locations$locations)[1,]
+yrange=bbox(kgk6sp.locations$locations)[2,]
+
+par(mfrow=c(2,3))
+
+for (i in 1:4)
+{
+  par(mar=c(0.1,0.1,0,0.5))
+  plot(base,col="antiquewhite3",border="antiquewhite3",xlim=xrange,ylim=yrange)
+  plot(kgk6sp.locations,index=i,add=TRUE,option="raw",
+       breakRange=c(-0.005,0.005), breakLength=8,baseSize=1.5)
+  legend("topleft",legend=c(NA),border=NA,title=as.roman(i),cex=1.5,bty="n")
+}
+
+plot(kgk6sp.locations,option="raw",breakRange=c(-0.005, 0.005),
+     breakLength=8,rd=3,legend=TRUE,legSize=1.50,location = "center")
+
+dev.off()
+
+# dev.print(device=pdf,"Figure 5.pdf")
+```
+
+### Figure for the Test results
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+## Figure for test results.
+tiff("~/Documents/kgk6/figures/Figure_10.tif", width = 1200, height = 600, units = "px", pointsize = 24)
+par(mfrow=c(2,3))
+
+for (i in 1:4)
+{
+  par(mar=c(0.1,0.1,0,0.5))	
+  plot(base,col="antiquewhite3",border="antiquewhite3",xlim=xrange,ylim=yrange)
+  plot(kgk6sp.locations,index=i,add=TRUE,option="test",baseSize=1.5)
+  legend("topleft",legend=c(NA),border=NA,title=as.roman(i),cex=1.5,bty="n")
+}
+
+plot(kgk6sp.locations,option="test",legend=i,legSize=1.5,cex=1.25,location="center")
+
+dev.off()
+# dev.print(device=pdf,"Figure 6.pdf")
+```
+
+# ELECTRONIC SUPPLEMENTAL MATERIAL.
+
+## Explore the binning process with a sensitivity analysis. Use binsense().
+```{r warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/figuresSM/Figure_1SM.tif", width = 1200, height = 765, units = "px", pointsize = 24)
+binsense(x = kgk6.cal, y = kgk6$Site_id, calendar = 'BCAD', 
+         h = seq(0, 500, 50), timeRange = c(7000, 5700), runm = 100)
+
+dev.off()
+
+# dev.print(device=pdf,"Figure SM2.pdf")
+```
+
+## Sensitivity analysis on Bandwidth variation for the Spatial Permutation Test.
+```{r warning=F, message=F}
+wsens <- numeric()
+bandwidth <- c(50, 100, 200)
+permSens <- vector("list", length = length(bandwidth))
+
+for (i in 1:length(bandwidth))
+{
+  wsens <- spweights(distSamples, h = bandwidth[i])
+  permSens[[i]] <- 
+    sptest(calDates=calDates,timeRange=yearRange,bins=bins,
+           locations=locations,spatialweights=spatialweights,
+           breaks=breaks,ncores=8,nsim=10000,permute="locations",
+           datenormalised=FALSE,raw = FALSE)
+}
+
+base <- getMap(resolution="coarse") # extract basemap
+# extract bounding coordinates of the site distribution
+xrange=bbox(locations)[1,]
+yrange=bbox(locations)[2,]
+```
+
+## Growth Rate Sensitivity Figure.
+```{r warning = FALSE, message = FALSE, results='hide'}
+tiff("~/Documents/kgk6/figures/figuresSM/Figure_2SM.tif", width = 1200, height = 800, units = "px", pointsize = 24)
+par(mfrow = c(3, 4))
+leg = FALSE
+for (k in 1:length(bandwidth))
+{
+	for (i in 1:4)
+	{
+		par(mar=c(0.1,0.1,0,0.5))
+		plot(base,col="antiquewhite3",border="antiquewhite3",xlim=xrange,ylim=yrange)
+		if (i==4 & k==length(bandwidth))
+		{leg=TRUE}
+		plot(permSens[[k]],index=i,add=TRUE,option="raw",
+		     breakRange=c(-0.005,0.005),breakLength=5,baseSize=1.5,legend=leg,legSize=0.8)
+		if (k==1)
+		{
+			legend("topleft",legend= paste0("",as.roman(i)),cex=1,bty="n")
+		}	
+
+		if (i==1)
+		{
+			mtext(2,text = paste0(bandwidth[k],"km"),line=-1.5,cex=0.6)
+		}
+	}
+}
+
+dev.off()
+# dev.print(device=pdf, "Figure SM3.pdf")
+```
+
+## Test Sensitivity Figure.
+```{r, warning = FALSE, message = FALSE, results = 'hide'}
+tiff("~/Documents/kgk6/figures/figuresSM/Figure_3SM.tif", width = 1200, height = 800, units = "px", pointsize = 24)
+par(mfrow=c(3, 4))
+
+leg=FALSE
+for (k in 1:length(bandwidth))
+  {
+	for (i in 1:4)
+	{
+		par(mar=c(0.1,0.1,0,0.5))
+		plot(base,col="antiquewhite3",border="antiquewhite3",xlim=xrange,ylim=yrange)
+		if (i==4 & k==length(bandwidth))
+		{leg=TRUE}
+		plot(permSens[[k]],index=i,add=TRUE,option="test",
+		     breakRange=c(-0.005,0.005),breakLength=5,baseSize=1.5,
+		     legend=leg,legSize=0.65)
+		if (k==1)
+		{
+			legend("topleft",legend= paste0("",as.roman(i)),cex=1,bty="n")
+		}	
+
+		if (i==1)
+		{
+			mtext(2,text = paste0(bandwidth[k],"km"),line=-1.5,cex=0.6)
+		}
+  }
+}
+
+dev.off()
+# dev.print(device=pdf, "Figure SM4.pdf")
+```
