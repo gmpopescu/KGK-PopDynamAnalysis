@@ -11,7 +11,7 @@ The paper is submitted to the Radiocarbon Journal.
 
 This data and analysis package should be cited as:
 
-Gabriel M. Popescu, Cristina Covătaru, Ionela Opriș, Adrian Bălășescu, Laurent Carozza, Valentin Radu, Constantin Haită, Tiberiu Sava, C. Michael Barton, Cătălin Lazăr. Kodjadermen-Gumelnița-Karanovo VI Population Dynamics – 14C Data and Analysis https://zenodo.org/record/7587242 
+Gabriel M. Popescu, Cristina Covătaru, Ionela Opriș, Adrian Bălășescu, Laurent Carozza, Valentin Radu, Constantin Haită, Tiberiu Sava, C. Michael Barton, Cătălin Lazăr. Kodjadermen-Gumelnița-Karanovo VI Population Dynamics – 14C Data and Analysis. https://doi.org/10.5281/zenodo.7600339  
 
 These data and analysis are open to use in scientific research but one should always cite both the paper and this dataset.
 
