@@ -5,7 +5,7 @@ Kodjadermen-Gumelnița-Karanovo VI Population Dynamics – 14C Data and Analysis
 
 The files in this package include data files and R Markdown analyses scripts for the paper:
 
-Gabriel M. Popescu, Cristina Covătaru, Ionela Opriș, Adrian Bălășescu, Laurent Carozza, Valentin Radu, Constantin Haită, Tiberiu Sava, C. Michael Barton, Cătălin Lazăr. Sine Qua Non: Inferring Kodjadermen-Gumelnița-Karanovo VI Population Dynamics from Aggregated Probabiliy Distributions of Radiocarbon Dates. Radiocarbon, 62, 2, pp. 463-484. DOI: https://doi.org/10.1017/RDC.2023.6 
+Gabriel M. Popescu, Cristina Covătaru, Ionela Opriș, Adrian Bălășescu, Laurent Carozza, Valentin Radu, Constantin Haită, Tiberiu Sava, C. Michael Barton, Cătălin Lazăr. 2023. Sine Qua Non: Inferring Kodjadermen-Gumelnița-Karanovo VI Population Dynamics from Aggregated Probabiliy Distributions of Radiocarbon Dates. Radiocarbon, 62, 2, pp. 463-484. DOI: https://doi.org/10.1017/RDC.2023.6 
 
 The paper is submitted to the Radiocarbon Journal.
 
