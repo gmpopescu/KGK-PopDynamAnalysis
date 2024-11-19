@@ -62,7 +62,7 @@ PERFORM THE ANALYSIS USING RCARBON.
 # Subset dates by region (North of Danube and South of Danube)
 ```{r subset, warning=F, message=F}
 kgk6n <- subset(kgk6, Region == 2)
-kgk6s <- subset(kgk6, Region == 1)
+kgk6s <- subset(kgk6, Region == 1
 ```
 
 # Check region lengths 
