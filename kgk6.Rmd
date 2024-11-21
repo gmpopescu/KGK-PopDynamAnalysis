@@ -338,6 +338,8 @@ resultPairwise
 # SPATIAL ANALYSIS
 
 ## Dispersal analysis of the KGK-VI sites, potentially from south to north.
+## The user should use the R version used in this study to get the same results. Otherwise one should twek the code 
+## to get the same results with newer R versions.
 
 ```{r warning = FALSE, message = FALSE}
 library(rcarbon)
